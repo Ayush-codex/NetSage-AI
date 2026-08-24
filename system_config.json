@@ -1,0 +1,24 @@
+{
+    "project_name": "NetSage AI",
+    "environment": "development",
+
+    "ai": {
+        "provider": "gemini",
+        "model": "gemini-3.6-flash",
+        "temperature": 0.2,
+        "max_retries": 2
+    },
+
+    "diagnosis": {
+        "minimum_confidence": 0.60,
+        "human_review_required": true
+    },
+
+    "rule_checker": {
+        "enabled": true
+    },
+
+    "logging": {
+        "audit_enabled": true
+    }
+}
