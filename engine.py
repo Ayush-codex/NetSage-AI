@@ -1,256 +1,323 @@
-import os
 import json
+import os
 from pathlib import Path
+from typing import List
 
 from dotenv import load_dotenv
 from google import genai
+from pydantic import BaseModel, Field
 
 
-# ============================================================
-# PATH CONFIGURATION
-# ============================================================
-
-BASE_DIR = Path(__file__).resolve().parent
-
-CONFIG_PATH = BASE_DIR / "system_config.json"
-PROMPT_PATH = BASE_DIR / "diagnose_prompt.md"
 
 
-# ============================================================
-# LOAD ENVIRONMENT VARIABLES
-# ============================================================
+BASE_DIR = Path(__file__).resolve().parent.parent
 
-load_dotenv(BASE_DIR / ".env")
+PROMPT_PATH = (
+    BASE_DIR
+    / "prompts"
+    / "diagnose_prompt.md"
+)
+
+CONFIG_PATH = (
+    BASE_DIR
+    / "system_config.json"
+)
 
 
-# ============================================================
-# LOAD CONFIGURATION
-# ============================================================
 
-def load_config():
-    if not CONFIG_PATH.exists():
-        raise FileNotFoundError(
-            f"Configuration file not found: {CONFIG_PATH}"
-        )
 
-    with open(CONFIG_PATH, "r", encoding="utf-8") as file:
+load_dotenv(
+    BASE_DIR / ".env"
+)
+
+GEMINI_API_KEY = os.getenv(
+    "GEMINI_API_KEY"
+)
+
+
+
+
+def load_config() -> dict:
+    """Load NetSage configuration."""
+
+    with open(
+        CONFIG_PATH,
+        "r",
+        encoding="utf-8"
+    ) as file:
+
         return json.load(file)
 
 
-# ============================================================
-# LOAD SYSTEM PROMPT
-# ============================================================
-
-def load_prompt():
-    if not PROMPT_PATH.exists():
-        raise FileNotFoundError(
-            f"Prompt file not found: {PROMPT_PATH}"
-        )
-
-    with open(PROMPT_PATH, "r", encoding="utf-8") as file:
-        return file.read()
-
-
-# ============================================================
-# LOAD PROJECT SETTINGS
-# ============================================================
-
 CONFIG = load_config()
-SYSTEM_PROMPT = load_prompt()
+
+MODEL_NAME = CONFIG["ai"]["model"]
+
+TEMPERATURE = CONFIG["ai"]["temperature"]
+
+HUMAN_REVIEW_REQUIRED = CONFIG[
+    "diagnosis"
+]["human_review_required"]
 
 
-# ============================================================
-# GET GEMINI API KEY
-# ============================================================
 
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
-if not GEMINI_API_KEY:
-    try:
-        import streamlit as st
+def create_client():
 
-        GEMINI_API_KEY = st.secrets.get(
-            "GEMINI_API_KEY",
-            None
+    if not GEMINI_API_KEY:
+
+        raise RuntimeError(
+            "GEMINI_API_KEY was not found. "
+            "Add it to the .env file."
         )
-    except Exception:
-        pass
 
-
-# ============================================================
-# CREATE GEMINI CLIENT
-# ============================================================
-
-client = None
-
-if GEMINI_API_KEY:
-    client = genai.Client(
+    return genai.Client(
         api_key=GEMINI_API_KEY
     )
 
 
-# ============================================================
-# GET MODEL NAME
-# ============================================================
-
-MODEL_NAME = CONFIG.get(
-    "model",
-    "gemini-3.6-flash"
-)
 
 
-# ============================================================
-# CLEAN AI RESPONSE
-# ============================================================
+class Diagnosis(BaseModel):
 
-def clean_json_response(text):
+    root_cause: str = Field(
+        description=(
+            "Most likely root cause of the "
+            "network problem."
+        )
+    )
 
-    text = text.strip()
+    osi_layer: str = Field(
+        description=(
+            "Most relevant OSI layer, such as "
+            "Layer 1, Layer 2, Layer 3, Layer 4, "
+            "or Layer 7."
+        )
+    )
 
-    if text.startswith("```json"):
-        text = text[7:]
+    confidence: float = Field(
+        ge=0.0,
+        le=1.0,
+        description=(
+            "Confidence in the diagnosis between "
+            "0 and 1."
+        )
+    )
 
-    elif text.startswith("```"):
-        text = text[3:]
+    evidence: List[str] = Field(
+        description=(
+            "Specific evidence from the supplied "
+            "case or rule checker."
+        )
+    )
 
-    if text.endswith("```"):
-        text = text[:-3]
+    next_command: str = Field(
+        description=(
+            "Cisco command that should be run next "
+            "to verify the diagnosis."
+        )
+    )
 
-    return text.strip()
+    fix_steps: List[str] = Field(
+        description=(
+            "Recommended remediation steps. "
+            "These are suggestions only."
+        )
+    )
 
-
-# ============================================================
-# RUN AI DIAGNOSIS
-# ============================================================
-
-def diagnose(case, rule_result):
-
-    try:
-
-        if not GEMINI_API_KEY:
-            raise ValueError(
-                "GEMINI_API_KEY is not configured. "
-                "Add it to your .env file locally or "
-                "Streamlit Secrets when deployed."
-            )
-
-        if client is None:
-            raise ValueError(
-                "Gemini client could not be initialized."
-            )
+    human_review_required: bool = Field(
+        description=(
+            "Must always be true because a human "
+            "must review the proposed fix."
+        )
+    )
 
 
-        # ----------------------------------------------------
-        # CREATE CASE PROMPT
-        # ----------------------------------------------------
 
-        prompt = f"""
-{SYSTEM_PROMPT}
 
-============================================================
-NETWORK TROUBLESHOOTING CASE
-============================================================
+def load_prompt() -> str:
 
-Case ID:
-{case.get("case_id", "Unknown")}
+    if not PROMPT_PATH.exists():
 
-Symptom:
-{case.get("symptom", "Not provided")}
+        raise FileNotFoundError(
+            f"Prompt file not found: {PROMPT_PATH}"
+        )
 
-Topology Note:
-{case.get("topology_note", "Not provided")}
+    return PROMPT_PATH.read_text(
+        encoding="utf-8"
+    )
 
-Show Command Output:
-{case.get("show_outputs", "Not provided")}
 
-Expected Fault:
-{case.get("expected_fault", "Not provided")}
+SYSTEM_PROMPT = load_prompt()
 
-OSI Layer:
-{case.get("osi_layer", "Not provided")}
 
-Concept Tag:
-{case.get("concept_tag", "Not provided")}
 
-Severity:
-{case.get("severity", "Not provided")}
 
-============================================================
-DETERMINISTIC RULE CHECKER RESULT
-============================================================
+def build_case_prompt(
+    case: dict,
+    rule_result: dict
+) -> str:
 
-{json.dumps(rule_result, indent=2)}
+    case_id = case.get(
+        "case_id",
+        "UNKNOWN"
+    )
 
-============================================================
-INSTRUCTIONS
-============================================================
+    symptom = case.get(
+        "symptom",
+        ""
+    )
 
-Analyze the available evidence.
+    topology = case.get(
+        "topology_note",
+        ""
+    )
 
-Use the symptom, show-command output, topology information,
-and rule checker result.
+    show_outputs = case.get(
+        "show_outputs",
+        ""
+    )
 
-Do not invent configuration details.
+    concept = case.get(
+        "concept_tag",
+        ""
+    )
 
-Return only valid JSON.
+    severity = case.get(
+        "severity",
+        ""
+    )
 
-Required format:
+    rule_results = json.dumps(
+        rule_result,
+        indent=2,
+        ensure_ascii=False
+    )
 
-{{
-    "root_cause": "Most likely root cause",
-    "osi_layer": "Relevant OSI layer",
-    "confidence": "low, medium, or high",
-    "evidence": [
-        "Evidence 1",
-        "Evidence 2"
-    ],
-    "next_command": "Recommended Cisco command",
-    "fix_steps": [
-        "Step 1",
-        "Step 2"
-    ],
-    "human_review_required": true
-}}
+    return f"""
+CASE ID:
+{case_id}
+
+SYMPTOM:
+{symptom}
+
+TOPOLOGY:
+{topology}
+
+CONCEPT:
+{concept}
+
+SEVERITY:
+{severity}
+
+SHOW OUTPUT:
+{show_outputs}
+
+RULE CHECKER RESULTS:
+{rule_results}
+
+Analyze this case using only the supplied evidence.
+
+Return the required structured JSON diagnosis.
+
+Remember:
+- Do not invent evidence.
+- Do not claim a fix was executed.
+- Human review is mandatory.
 """
 
 
-        # ----------------------------------------------------
-        # CALL GEMINI
-        # ----------------------------------------------------
 
-        response = client.models.generate_content(
-            model=MODEL_NAME,
-            contents=prompt
+
+def validate_diagnosis(
+    diagnosis: Diagnosis
+) -> Diagnosis:
+
+    
+    diagnosis.human_review_required = True
+
+    
+    diagnosis.confidence = max(
+        0.0,
+        min(
+            1.0,
+            diagnosis.confidence
         )
+    )
+
+    return diagnosis
 
 
-        # ----------------------------------------------------
-        # VALIDATE RESPONSE
-        # ----------------------------------------------------
 
-        if not response.text:
-            raise ValueError(
-                "Gemini returned an empty response."
+
+def generate_diagnosis(
+    case: dict,
+    rule_result: dict
+) -> dict:
+
+    client = create_client()
+
+    case_prompt = build_case_prompt(
+        case,
+        rule_result
+    )
+
+    full_prompt = (
+        SYSTEM_PROMPT
+        + "\n\n"
+        + case_prompt
+    )
+
+    response = client.models.generate_content(
+        model=MODEL_NAME,
+        contents=full_prompt,
+        config={
+            "temperature": TEMPERATURE,
+            "response_mime_type": "application/json",
+            "response_schema": Diagnosis,
+        }
+    )
+
+    
+    if hasattr(response, "parsed") and response.parsed:
+
+        diagnosis = response.parsed
+
+        if not isinstance(
+            diagnosis,
+            Diagnosis
+        ):
+
+            diagnosis = Diagnosis.model_validate(
+                diagnosis
             )
 
+    else:
 
-        raw_text = clean_json_response(
+        diagnosis = Diagnosis.model_validate_json(
             response.text
         )
 
+    diagnosis = validate_diagnosis(
+        diagnosis
+    )
 
-        # ----------------------------------------------------
-        # PARSE JSON
-        # ----------------------------------------------------
+    return diagnosis.model_dump()
 
-        diagnosis = json.loads(
-            raw_text
+
+
+
+def diagnose(
+    case: dict,
+    rule_result: dict
+) -> dict:
+
+    try:
+
+        diagnosis = generate_diagnosis(
+            case,
+            rule_result
         )
-
-
-        # ----------------------------------------------------
-        # SUCCESS RESPONSE
-        # ----------------------------------------------------
 
         return {
             "success": True,
@@ -258,7 +325,6 @@ Required format:
             "diagnosis": diagnosis,
             "error": None
         }
-
 
     except Exception as error:
 
