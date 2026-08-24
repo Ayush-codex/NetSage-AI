@@ -9,7 +9,7 @@ __pycache__/
 *.pyc
 
 
-.streamlit/
+.streamlit/secrets.toml
 
 .vscode/
 
