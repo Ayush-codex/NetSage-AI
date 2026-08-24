@@ -30,9 +30,14 @@ load_dotenv(
     BASE_DIR / ".env"
 )
 
-GEMINI_API_KEY = os.getenv(
-    "GEMINI_API_KEY"
-)
+try:
+    GEMINI_API_KEY = st.secrets["GEMINI_API_KEY"]
+
+except:
+
+    GEMINI_API_KEY = os.getenv(
+        "GEMINI_API_KEY"
+    )
 
 
 
