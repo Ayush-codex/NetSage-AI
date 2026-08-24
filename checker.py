@@ -6,10 +6,7 @@ from typing import Optional
 
 
 def check_interface_status(show_output: str) -> list:
-    """
-    Detect Cisco interfaces that are administratively down,
-    physically down, or have a down line protocol.
-    """
+    
 
     errors = []
 
