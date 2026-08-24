@@ -28,5 +28,5 @@ def load_prompt():
     with open(PROMPT_PATH, "r", encoding="utf-8") as file:
         return file.read()
 
-
+CONFIG = load_config()
 SYSTEM_PROMPT = load_prompt()
