@@ -6,7 +6,7 @@ BASE_DIR = Path(__file__).resolve().parent
 
 # File paths
 CONFIG_PATH = BASE_DIR / "system_config.json"
-PROMPT_PATH = BASE_DIR / "prompts" / "diagnose_prompt.md"
+PROMPT_PATH = BASE_DIR / "diagnose_prompt.md"
 
 
 def load_config():
@@ -29,5 +29,4 @@ def load_prompt():
         return file.read()
 
 
-CONFIG = load_config()
 SYSTEM_PROMPT = load_prompt()
