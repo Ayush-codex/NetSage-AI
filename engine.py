@@ -16,7 +16,6 @@ CONFIG_PATH = BASE_DIR / "system_config.json"
 
 PROMPT_PATH = (
     BASE_DIR
-    / "prompts"
     / "diagnose_prompt.md"
 )
 
